@@ -16,7 +16,9 @@ def analytics_section():
     st.header("Capacity Test")
 
     # ---- AC side ----
-    with st.expander("AC side using HyCon", expanded=True):
+    # FIX: Replaced outer st.expander with st.subheader and st.container to avoid nesting error
+    st.subheader("AC side using HyCon")
+    with st.container():
         capacity_test_ac_section()
 
     # ---- DC side (coming soon) ----
@@ -165,16 +167,22 @@ def capacity_test_ac_section():
 
     # ---- Find actual Operate interval & restrict ----
     op_min, op_max = operate_time_bounds(pre, status_col=status_col, operate_value=operate_value)
+    
+    # Check if a valid operate interval was found
     if op_min is None or op_max is None:
         st.warning("No rows with the specified 'Operate' status in the selected device/time window.")
         return
+    
+    # If a valid interval is found, proceed with slicing and displaying.
     work = pre[(pre.index >= op_min) & (pre.index <= op_max)].copy()
 
+    # FIX: Reverted to st.expander (now non-nested)
     with st.expander("Detected Operate interval", expanded=True):
         st.write(f"**{op_min} → {op_max}** (subset of your coarse selection)")
 
     # ---- Show Detected Sample Rate (per device) over the Operate slice ----
     sr = estimate_sample_rate_per_device(work)
+    # FIX: Reverted to st.expander (now non-nested)
     with st.expander("Sample rate", expanded=True):
         if sr.empty:
             st.info("Could not estimate sampling intervals (insufficient data).")
@@ -249,6 +257,7 @@ def capacity_test_ac_section():
         st.dataframe(summary, use_container_width=True)
 
         # Preview new columns (operate slice)
+        # This expander is now non-nested and will work.
         with st.expander("Preview computed features (Operate slice)", expanded=False):
             keep_cols = [c for c in ["Calc-PoiEgy", "Calc-PoiEgyMtr", power_col, status_col, DEVICE_ID_COL] if c in df_updated.columns]
             st.dataframe(df_updated.loc[work.index, keep_cols].head(50), use_container_width=True)
