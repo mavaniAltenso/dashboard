@@ -37,7 +37,7 @@ def check_password():
         return True  # Password is correct
     elif password_attempt == "":
         # If no password, just show a prompt
-        st.info("Please enter the password to see the dashboard.")
+        st.info("Please enter the password in order to access the dashboard.")
         return False
     else:
         # If password is wrong, show an error
