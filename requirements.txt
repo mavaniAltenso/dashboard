@@ -51,7 +51,7 @@ prompt_toolkit==3.0.51
 protobuf==4.25.3
 psutil==7.0.0
 pure_eval==0.2.3
-pyarrow==17.0.0
+pyarrow
 pydeck==0.9.1
 Pygments==2.19.2
 pyparsing==3.2.3
@@ -81,4 +81,5 @@ watchdog==4.0.1
 wcwidth==0.2.13
 wheel>=0.42
 streamlit==1.39.0
+
 
