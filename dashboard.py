@@ -3,43 +3,6 @@ import re
 import tempfile
 import pandas as pd
 import streamlit as st
-import hmac  # Import for secure password comparison
-
-# --- Password Check Function ---
-# This function must be at the very top, before any other Streamlit code.
-def check_password():
-    """Returns True if the user has entered the correct password."""
-
-    def password_entered():
-        """Checks whether a password entered by the user is correct."""
-        # Compare the entered password with the one in st.secrets
-        # hmac.compare_digest is used for a secure comparison
-        if hmac.compare_digest(st.session_state["password"], st.secrets["dashboard_password"]):
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Don't store password
-        else:
-            st.session_state["password_correct"] = False
-
-    # Check if the password_correct key exists and is True
-    if st.session_state.get("password_correct", False):
-        return True
-
-    # If not, show the password input field
-    st.text_input(
-        "Enter Password to Access", type="password", on_change=password_entered, key="password"
-    )
-    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
-        st.error("😕 Password incorrect. Please try again.")
-    return False
-
-# --- STOP all code execution if password is not correct ---
-# This line is the most important part.
-if not check_password():
-    st.stop()
-
-
-# --- Your Original App Code Starts Here ---
-# All this code will ONLY run if the password was correct.
 
 # Ensure these files exist in the 'sections' folder:
 from sections.preprocessing_section import preprocessing_section
@@ -48,6 +11,38 @@ from sections.analytics_section import analytics_section
 
 # Keep your original loader
 from src.data_loader import load_data, convert_to_parquet
+
+# --- Page config (MOVED TO THE TOP) ---
+# This MUST be the first Streamlit command
+st.set_page_config(
+    page_title="Universal Data Dashboard",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# --- PASSWORD CHECK FUNCTION ---
+def check_password():
+    """Returns True if the user entered the correct password."""
+    
+    # Get the password from Streamlit Secrets
+    # "APP_PASSWORD" must match the name of the secret you created
+    correct_password = st.secrets["APP_PASSWORD"]
+
+    # Ask the user for the password
+    # The key "password_input" makes this input unique
+    password_attempt = st.text_input("Enter Password", type="password", key="password_input")
+
+    # Check if the password is correct
+    if password_attempt == correct_password:
+        return True  # Password is correct
+    elif password_attempt == "":
+        # If no password, just show a prompt
+        st.info("Please enter the password to see the dashboard.")
+        return False
+    else:
+        # If password is wrong, show an error
+        st.error("Incorrect password. Please try again.")
+        return False
 
 # --- Data Profile Configuration ---
 DATA_PROFILES = {
@@ -141,114 +136,113 @@ def load_sc_com_csv(file_path, drop_ms_option=False):
     return df
 
 
-# --- Page config ---
-st.set_page_config(
-    page_title="Universal Data Dashboard",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-st.title("Data visualisation & Analytics")
-st.markdown("Dashboard allows diff. data format handling, preprocessing, and visualization.")
+# --- MAIN APP LOGIC (WRAPPED IN PASSWORD CHECK) ---
+if check_password():
 
-# --- Session state ---
-if "current_data" not in st.session_state:
-    st.session_state.current_data = pd.DataFrame()
-if "uploaded_file" not in st.session_state:
-    st.session_state.uploaded_file = None
-if "processed_data" not in st.session_state:
-    st.session_state.processed_data = None
-if "file_path" not in st.session_state:
-    st.session_state.file_path = None
-if "file_type" not in st.session_state:
-    st.session_state.file_type = None
+    # All the code below this is INDENTED
+    
+    st.title("Data visualisation & Analytics")
+    st.markdown("Dashboard allows diff. data format handling, preprocessing, and visualization.")
 
-# --- Main Tabs ---
-tab_load, tab_preprocess, tab_plot, tab_analytics = st.tabs(
-    ["📂 Load Data", "🛠️ Preprocessing", "📈 Plot Data", "📊 Analytics"]
-)
+    # --- Session state ---
+    if "current_data" not in st.session_state:
+        st.session_state.current_data = pd.DataFrame()
+    if "uploaded_file" not in st.session_state:
+        st.session_state.uploaded_file = None
+    if "processed_data" not in st.session_state:
+        st.session_state.processed_data = None
+    if "file_path" not in st.session_state:
+        st.session_state.file_path = None
+    if "file_type" not in st.session_state:
+        st.session_state.file_type = None
 
-with tab_load:
-    st.header("Upload and Load Data")
-    uploaded_file = st.file_uploader(
-        "Upload a CSV or Parquet file", type=["csv", "parquet"], key="file_uploader"
+    # --- Main Tabs ---
+    tab_load, tab_preprocess, tab_plot, tab_analytics = st.tabs(
+        ["📂 Load Data", "🛠️ Preprocessing", "📈 Plot Data", "📊 Analytics"]
     )
 
-    # Sidebar options
-    with st.sidebar.container():
-        st.subheader("Data Loading Options")
-        drop_ms_option = st.checkbox("Drop 'ms' column (for Tool SCC)", value=False)
+    with tab_load:
+        st.header("Upload and Load Data")
+        uploaded_file = st.file_uploader(
+            "Upload a CSV or Parquet file", type=["csv", "parquet"], key="file_uploader"
+        )
 
-        if uploaded_file and uploaded_file.name.lower().endswith(".csv"):
-            st.info("CSV Profile Selector")
-            profile_name = st.selectbox(
-                "Select Data Profile", options=list(DATA_PROFILES.keys()), key="csv_profile_selector"
-            )
-            profile = DATA_PROFILES[profile_name]
-            st.markdown(f"**Description:** _{profile['description']}_")
-            st.markdown("---")
-            st.caption("Applied Parameters:")
-            st.text(f"Delimiter: '{profile['separator'] if profile['separator'] else 'auto'}'")
-            st.text(f"Bad Lines Action: '{profile['bad_lines_action']}'")
-            st.text(f"Skip Rows: {profile['skiprows'] if profile['skiprows'] else 'None'}")
+        # Sidebar options
+        with st.sidebar.container():
+            st.subheader("Data Loading Options")
+            drop_ms_option = st.checkbox("Drop 'ms' column (for Tool SCC)", value=False)
 
-    if st.button("Load Data"):
-        if uploaded_file is not None:
-            st.session_state.file_type = uploaded_file.name.split(".")[-1].lower()
-            st.session_state.uploaded_file = uploaded_file
-            with tempfile.NamedTemporaryFile(delete=False, suffix=f".{st.session_state.file_type}") as tmp_file:
-                uploaded_file.seek(0)
-                tmp_file.write(uploaded_file.read())
-                tmp_file_path = tmp_file.name
+            if uploaded_file and uploaded_file.name.lower().endswith(".csv"):
+                st.info("CSV Profile Selector")
+                profile_name = st.selectbox(
+                    "Select Data Profile", options=list(DATA_PROFILES.keys()), key="csv_profile_selector"
+                )
+                profile = DATA_PROFILES[profile_name]
+                st.markdown(f"**Description:** _{profile['description']}_")
+                st.markdown("---")
+                st.caption("Applied Parameters:")
+                st.text(f"Delimiter: '{profile['separator'] if profile['separator'] else 'auto'}'")
+                st.text(f"Bad Lines Action: '{profile['bad_lines_action']}'")
+                st.text(f"Skip Rows: {profile['skiprows'] if profile['skiprows'] else 'None'}")
 
-            try:
-                if st.session_state.file_type == "csv":
-                    selected_profile = st.session_state.get("csv_profile_selector", "Hymon")
-                    if selected_profile == "Sc_Com / HyCon":
-                        df = load_sc_com_csv(tmp_file_path, drop_ms_option=drop_ms_option)
+        if st.button("Load Data"):
+            if uploaded_file is not None:
+                st.session_state.file_type = uploaded_file.name.split(".")[-1].lower()
+                st.session_state.uploaded_file = uploaded_file
+                with tempfile.NamedTemporaryFile(delete=False, suffix=f".{st.session_state.file_type}") as tmp_file:
+                    uploaded_file.seek(0)
+                    tmp_file.write(uploaded_file.read())
+                    tmp_file_path = tmp_file.name
+
+                try:
+                    if st.session_state.file_type == "csv":
+                        selected_profile = st.session_state.get("csv_profile_selector", "Hymon")
+                        if selected_profile == "Sc_Com / HyCon":
+                            df = load_sc_com_csv(tmp_file_path, drop_ms_option=drop_ms_option)
+                        else:
+                            profile = DATA_PROFILES[selected_profile]
+                            df = load_data(
+                                uploaded_file,
+                                tmp_file_path,
+                                profile["separator"],
+                                profile["bad_lines_action"],
+                                st.session_state.file_type,
+                                profile["skiprows"],
+                            )
                     else:
-                        profile = DATA_PROFILES[selected_profile]
-                        df = load_data(
-                            uploaded_file,
-                            tmp_file_path,
-                            profile["separator"],
-                            profile["bad_lines_action"],
-                            st.session_state.file_type,
-                            profile["skiprows"],
-                        )
-                else:
-                    df = load_data(uploaded_file, tmp_file_path, None, None, st.session_state.file_type, None)
+                        df = load_data(uploaded_file, tmp_file_path, None, None, st.session_state.file_type, None)
 
-                if df is not None and not df.empty:
-                    # Normalize device column
-                    if "device-address:uid" in df.columns:
-                        pass
-                    elif "Device" in df.columns:
-                        df.rename(columns={"Device": "device-address:uid"}, inplace=True)
+                    if df is not None and not df.empty:
+                        # Normalize device column
+                        if "device-address:uid" in df.columns:
+                            pass
+                        elif "Device" in df.columns:
+                            df.rename(columns={"Device": "device-address:uid"}, inplace=True)
+                        else:
+                            source_label = os.path.splitext(os.path.basename(uploaded_file.name))[0]
+                            df["device-address:uid"] = source_label
+
+                        st.session_state.current_data = df
+                        st.session_state.processed_data = df.copy()
+                        st.success("Data loaded successfully!")
+                        st.write("First 5 rows of the loaded data:")
+                        st.dataframe(st.session_state.current_data.head())
                     else:
-                        source_label = os.path.splitext(os.path.basename(uploaded_file.name))[0]
-                        df["device-address:uid"] = source_label
+                        st.error("Failed to load data.")
+                finally:
+                    os.unlink(tmp_file_path)
+            else:
+                st.warning("Please upload a file first.")
 
-                    st.session_state.current_data = df
-                    st.session_state.processed_data = df.copy()
-                    st.success("Data loaded successfully!")
-                    st.write("First 5 rows of the loaded data:")
-                    st.dataframe(st.session_state.current_data.head())
-                else:
-                    st.error("Failed to load data.")
-            finally:
-                os.unlink(tmp_file_path)
-        else:
-            st.warning("Please upload a file first.")
+    with tab_preprocess:
+        data_to_use = (
+            st.session_state.processed_data if st.session_state.processed_data is not None else st.session_state.current_data
+        )
+        preprocessing_section(data_to_use)
 
-with tab_preprocess:
-    data_to_use = (
-        st.session_state.processed_data if st.session_state.processed_data is not None else st.session_state.current_data
-    )
-    preprocessing_section(data_to_use)
+    with tab_plot:
+        # Plot section includes its own export (under the chart) and keeps the chart visible after downloads
+        plot_data_section()
 
-with tab_plot:
-    # Plot section includes its own export (under the chart) and keeps the chart visible after downloads
-    plot_data_section()
-
-with tab_analytics:
-    analytics_section()
+    with tab_analytics:
+        analytics_section()
