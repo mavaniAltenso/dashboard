@@ -87,7 +87,7 @@ def load_sc_com_csv(file_path, drop_ms_option=False):
     header_rows = pd.read_csv(
         file_path,
         encoding="latin1",
-        sep=";",                # <--- FIX 1: Replaced sep=None
+        sep=";",
         engine="python",
         skiprows=header_rows_indices[0],
         nrows=len(header_rows_indices),
@@ -95,19 +95,26 @@ def load_sc_com_csv(file_path, drop_ms_option=False):
     )
     combined_headers = header_rows.fillna("").astype(str).agg(" ".join)
     combined_headers = combined_headers.str.replace(r"\s+", " ", regex=True).str.replace("-", "").str.strip()
+    
+    # --- NEW FIX ---
+    # Count the number of headers we *actually* found (e.g., 33)
+    num_expected_cols = len(combined_headers)
+    # --- END NEW FIX ---
+
 
     # Read data below timestamp row
     df = pd.read_csv(
         file_path,
         encoding="latin1",
-        sep=";",                # <--- FIX 2: Replaced sep=None
+        sep=";",
         engine="python",
         skiprows=timestamp_row + 1,
         header=None,
-        on_bad_lines="skip",    # Added for safety, matches your other profiles
+        on_bad_lines="skip",
+        usecols=range(num_expected_cols)  # <--- THIS IS THE FIX
     )
     
-    # This line will now work, as headers and data have the same column count
+    # This line will now work, as both have 33 columns
     df.columns = combined_headers
 
     # Make columns unique
