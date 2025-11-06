@@ -87,7 +87,7 @@ def load_sc_com_csv(file_path, drop_ms_option=False):
     header_rows = pd.read_csv(
         file_path,
         encoding="latin1",
-        sep=None,
+        sep=";",                # <--- FIX 1: Replaced sep=None
         engine="python",
         skiprows=header_rows_indices[0],
         nrows=len(header_rows_indices),
@@ -100,11 +100,14 @@ def load_sc_com_csv(file_path, drop_ms_option=False):
     df = pd.read_csv(
         file_path,
         encoding="latin1",
-        sep=None,
+        sep=";",                # <--- FIX 2: Replaced sep=None
         engine="python",
         skiprows=timestamp_row + 1,
         header=None,
+        on_bad_lines="skip",    # Added for safety, matches your other profiles
     )
+    
+    # This line will now work, as headers and data have the same column count
     df.columns = combined_headers
 
     # Make columns unique
