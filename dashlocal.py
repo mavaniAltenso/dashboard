@@ -7,7 +7,7 @@ import streamlit as st
 # Ensure these files exist in the 'sections' folder:
 from sections.preprocessing_section import preprocessing_section
 from sections.plot_data_section import plot_data_section
-from sections.analytics_section import analytics_section
+# from sections.analytics_section import analytics_section
 
 # Keep your original loader
 from src.data_loader import load_data, convert_to_parquet
@@ -137,7 +137,7 @@ if "file_type" not in st.session_state:
 
 # --- Main Tabs ---
 tab_load, tab_preprocess, tab_plot, tab_analytics = st.tabs(
-    ["📂 Load Data", "🛠️ Preprocessing", "📈 Plot Data", "📊 Analytics"]
+    ["📂 Load Data", "🛠️ Preprocessing", "📈 Plot Data"]  # "📊 Analytics"
 )
 
 with tab_load:
@@ -223,5 +223,5 @@ with tab_plot:
     # Plot section includes its own export (under the chart) and keeps the chart visible after downloads
     plot_data_section()
 
-with tab_analytics:
-    analytics_section()
+# with tab_analytics:
+#     analytics_section()
