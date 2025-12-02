@@ -4,24 +4,57 @@ import io
 import os
 import pyarrow 
 
-# --- NEW: Optimization Function ---
+# --- NEW: Robust Optimization Function ---
 def optimize_dtypes(df):
-    """
-    Optimizes data types to reduce memory usage.
-    Converts object columns to categories if they have low cardinality (few unique values).
-    """
+
     for col in df.columns:
-        # Only process object (string) columns
         if df[col].dtype == 'object':
+            
+            # --- STEP 1: robust numeric conversion ---
+            try:
+                # 1. Clean whitespace from the ends
+                df[col] = df[col].astype(str).str.strip()
+                
+                # 2. Identify rows that actually have content (not empty, not 'nan')
+                mask_has_content = (df[col] != '') & (df[col].str.lower() != 'nan') & (df[col].notna())
+                content_values = df.loc[mask_has_content, col]
+                
+                # If the column is totally empty, skip it
+                if len(content_values) == 0:
+                    continue
+
+                # 3. Create a clean version: Remove commas (US format thousands)
+                cleaned = content_values.str.replace(',', '', regex=False)
+                
+                # 4. Try converting to numeric
+                converted = pd.to_numeric(cleaned, errors='coerce')
+                
+                # 5. Ratio: Valid Numbers / Total Non-Empty Entries
+                success_count = converted.notna().sum()
+                total_count = len(content_values)
+                
+                # If > 80% of the *non-empty* data is numeric, convert the whole column
+                if total_count > 0 and (success_count / total_count) > 0.8:
+                    # Apply transformation to the FULL column
+                    df[col] = pd.to_numeric(
+                        df[col].str.replace(',', '', regex=False), 
+                        errors='coerce'
+                    )
+                    continue 
+
+            except Exception:
+                pass
+
+            # --- STEP 2: Category Optimization ---
+            # Only runs if the numeric check above FAILED
             num_unique_values = len(df[col].unique())
             num_total_values = len(df[col])
             
-            # If less than 50% of values are unique, it's efficient to use category
-            # (e.g., Device IDs, Status Labels, Error Codes)
             if num_total_values > 0 and (num_unique_values / num_total_values) < 0.5:
                 df[col] = df[col].astype('category')
+                
     return df
-# ----------------------------------
+
 
 def load_data(file, file_path, separator, bad_lines_action, file_type, skiprows=None):
     try:
@@ -49,7 +82,7 @@ def load_data(file, file_path, separator, bad_lines_action, file_type, skiprows=
                 st.error("The loaded data is either empty or could not be parsed correctly.")
             return None
 
-        # --- NEW: Apply Optimization here ---
+        # --- Apply Optimization ---
         df = optimize_dtypes(df)
         # ------------------------------------
 
@@ -60,9 +93,7 @@ def load_data(file, file_path, separator, bad_lines_action, file_type, skiprows=
         return None
 
 
-
 def convert_to_parquet(uploaded_file, separator, bad_lines_action, skiprows=None):
-
     try:
         # Read CSV directly from the uploaded file buffer
         uploaded_file.seek(0)
@@ -71,7 +102,7 @@ def convert_to_parquet(uploaded_file, separator, bad_lines_action, skiprows=None
             sep=separator, 
             on_bad_lines=bad_lines_action, 
             engine='python',
-            skiprows=skiprows # This is where the argument is used
+            skiprows=skiprows 
         )
         
         if csv_df.empty:

@@ -18,7 +18,7 @@ from sections.preprocessing_section import preprocessing_section
 from sections.plot_data_section import plot_data_section
 
 # Keep your original loader
-from src.data_loader import load_data, convert_to_parquet
+from src.data_loader import load_data
 
 # --- 3. PASSWORD CHECK FUNCTION ---
 def check_password():
@@ -40,10 +40,7 @@ def check_password():
         st.error("Incorrect password. Please try again.")
         return False
 
-# --- 4. EXECUTE PASSWORD CHECK ---
-# (Uncomment the next two lines if you want to enforce the password)
-# if not check_password():
-#     st.stop()  # Stop execution here if password is wrong
+
 
 # --- Data Profile Configuration ---
 DATA_PROFILES = {
@@ -67,30 +64,17 @@ DATA_PROFILES = {
     },
 }
 
-# --- Helper: Memory Optimization ---
-# We define this here to apply it to the local Sc_Com loader as well
-def optimize_dtypes(df):
-    for col in df.columns:
-        if df[col].dtype == 'object':
-            num_unique_values = len(df[col].unique())
-            num_total_values = len(df[col])
-            if num_total_values > 0 and (num_unique_values / num_total_values) < 0.5:
-                df[col] = df[col].astype('category')
-    return df
-
 # --- Sc_Com / HyCon Loader ---
-def load_sc_com_csv(file_path, drop_ms_option=False):
-    """Robust Sc_Com / HyCon CSV loader for dashboard (Hybrid Controller or Tool SCC)."""
+def load_sc_com_csv(file_path):
+    """Robust Sc_Com / HyCon CSV loader. Automatically drops 'ms' column."""
     with open(file_path, "r", encoding="latin1", errors="ignore") as f:
         first_line = f.readline().strip()
         if "Hybrid Controller" in first_line:
             timestamp_row = 7
             header_rows_indices = [5, 7]  # combine 6th + 8th rows
-            has_ms_column = False
         elif "Tool SCC" in first_line:
             timestamp_row = 11
             header_rows_indices = [9, 10]  # combine 10th + 11th rows
-            has_ms_column = True
         else:
             st.error("Sc_Com / HyCon: Unknown type. First line must contain 'Hybrid Controller' or 'Tool SCC'.")
             return pd.DataFrame()
@@ -143,22 +127,23 @@ def load_sc_com_csv(file_path, drop_ms_option=False):
     # Rename first column to Timestamp
     df.rename(columns={df.columns[0]: "Timestamp"}, inplace=True)
 
-    # Optional drop ms column
-    if has_ms_column and drop_ms_option and len(df.columns) > 1 and df.columns[1].lower().strip() == "ms":
+    # --- AUTOMATIC DROP LOGIC ---
+    # Always check if the second column is 'ms' and drop it
+    if len(df.columns) > 1 and df.columns[1].lower().strip() == "ms":
         df.drop(columns=[df.columns[1]], inplace=True)
-        st.info("Dropped 'ms' column for Tool SCC.")
+        # st.info("Automatically dropped 'ms' column.") # Uncomment if you want to see a message
 
     # Parse Timestamp
     df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")
-    
-    # --- NEW: Optimize Memory for Sc_Com files too ---
-    df = optimize_dtypes(df)
-    # -------------------------------------------------
-    
     return df
 
 
-# --- UI Content Starts Here ---
+# --- Page config ---
+st.set_page_config(
+    page_title="Universal Data Dashboard",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 st.title("Data visualisation & Analytics")
 st.markdown("Dashboard allows diff. data format handling, preprocessing, and visualization.")
 
@@ -175,6 +160,7 @@ if "file_type" not in st.session_state:
     st.session_state.file_type = None
 
 # --- Main Tabs ---
+# FIX: Removed 'tab_analytics' variable and label
 tab_load, tab_preprocess, tab_plot = st.tabs(
     ["📂 Load Data", "🛠️ Preprocessing", "📈 Plot Data"]  
 )
@@ -188,7 +174,6 @@ with tab_load:
     # Sidebar options
     with st.sidebar.container():
         st.subheader("Data Loading Options")
-        drop_ms_option = st.checkbox("Drop 'ms' column (for Tool SCC)", value=False)
 
         if uploaded_file and uploaded_file.name.lower().endswith(".csv"):
             st.info("CSV Profile Selector")
@@ -203,7 +188,7 @@ with tab_load:
             st.text(f"Bad Lines Action: '{profile['bad_lines_action']}'")
             st.text(f"Skip Rows: {profile['skiprows'] if profile['skiprows'] else 'None'}")
 
-    # Load Data Button (Outside Sidebar)
+    # FIX: Indentation moved BACK (Left) so this is NOT in the sidebar
     if st.button("Load Data"):
         # --- Aggressive Memory Cleanup ---
         st.session_state.current_data = pd.DataFrame()
@@ -216,6 +201,7 @@ with tab_load:
             st.session_state.file_type = uploaded_file.name.split(".")[-1].lower()
             st.session_state.uploaded_file = uploaded_file
             
+            # FIX: .write() is now INSIDE the 'with' block
             with tempfile.NamedTemporaryFile(delete=False, suffix=f".{st.session_state.file_type}") as tmp_file:
                 uploaded_file.seek(0)
                 tmp_file.write(uploaded_file.read())
@@ -225,7 +211,7 @@ with tab_load:
                 if st.session_state.file_type == "csv":
                     selected_profile = st.session_state.get("csv_profile_selector", "Hymon")
                     if selected_profile == "Sc_Com / HyCon":
-                        df = load_sc_com_csv(tmp_file_path, drop_ms_option=drop_ms_option)
+                        df = load_sc_com_csv(tmp_file_path)
                     else:
                         profile = DATA_PROFILES[selected_profile]
                         df = load_data(
