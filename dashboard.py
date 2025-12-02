@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- 2. IMPORTS (Now safe to import custom files) ---
+# --- 2. IMPORTS ---
 # Ensure these files exist in the 'sections' folder:
 from sections.preprocessing_section import preprocessing_section
 from sections.plot_data_section import plot_data_section
@@ -25,13 +25,25 @@ def check_password():
     """Returns True if the user entered the correct password."""
     # Ensure you have .streamlit/secrets.toml with [APP_PASSWORD] = "your_password"
     if "APP_PASSWORD" not in st.secrets:
-        st.error("Secrets not found. Please set up .streamlit/secrets.toml")
-        return False
+        # If no password set in secrets, allow access (or change to error if strict)
+        return True
 
     correct_password = st.secrets["APP_PASSWORD"]
-    password_attempt = st.text_input("Enter Password", type="password", key="password_input")
+    # If password in secrets is empty, allow access
+    if not correct_password:
+        return True
 
+    if "password_correct" not in st.session_state:
+        st.session_state.password_correct = False
+
+    if st.session_state.password_correct:
+        return True
+
+    password_attempt = st.text_input("Enter Password", type="password", key="password_input")
+    
     if password_attempt == correct_password:
+        st.session_state.password_correct = True
+        st.rerun()
         return True
     elif password_attempt == "":
         st.info("Please enter the password in order to access the dashboard.")
@@ -40,6 +52,9 @@ def check_password():
         st.error("Incorrect password. Please try again.")
         return False
 
+# Execute Password Check
+if not check_password():
+    st.stop()
 
 
 # --- Data Profile Configuration ---
@@ -131,19 +146,13 @@ def load_sc_com_csv(file_path):
     # Always check if the second column is 'ms' and drop it
     if len(df.columns) > 1 and df.columns[1].lower().strip() == "ms":
         df.drop(columns=[df.columns[1]], inplace=True)
-        # st.info("Automatically dropped 'ms' column.") # Uncomment if you want to see a message
 
     # Parse Timestamp
     df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")
     return df
 
 
-# --- Page config ---
-st.set_page_config(
-    page_title="Universal Data Dashboard",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+# --- Main Page Title ---
 st.title("Data visualisation & Analytics")
 st.markdown("Dashboard allows diff. data format handling, preprocessing, and visualization.")
 
@@ -160,11 +169,13 @@ if "file_type" not in st.session_state:
     st.session_state.file_type = None
 
 # --- Main Tabs ---
-# FIX: Removed 'tab_analytics' variable and label
 tab_load, tab_preprocess, tab_plot = st.tabs(
     ["📂 Load Data", "🛠️ Preprocessing", "📈 Plot Data"]  
 )
 
+# -----------------------------------------------------------------------------
+# TAB 1: LOAD DATA
+# -----------------------------------------------------------------------------
 with tab_load:
     st.header("Upload and Load Data")
     uploaded_file = st.file_uploader(
@@ -188,7 +199,7 @@ with tab_load:
             st.text(f"Bad Lines Action: '{profile['bad_lines_action']}'")
             st.text(f"Skip Rows: {profile['skiprows'] if profile['skiprows'] else 'None'}")
 
-    # FIX: Indentation moved BACK (Left) so this is NOT in the sidebar
+    # Load Data Button
     if st.button("Load Data"):
         # --- Aggressive Memory Cleanup ---
         st.session_state.current_data = pd.DataFrame()
@@ -201,7 +212,6 @@ with tab_load:
             st.session_state.file_type = uploaded_file.name.split(".")[-1].lower()
             st.session_state.uploaded_file = uploaded_file
             
-            # FIX: .write() is now INSIDE the 'with' block
             with tempfile.NamedTemporaryFile(delete=False, suffix=f".{st.session_state.file_type}") as tmp_file:
                 uploaded_file.seek(0)
                 tmp_file.write(uploaded_file.read())
@@ -226,15 +236,16 @@ with tab_load:
                     df = load_data(uploaded_file, tmp_file_path, None, None, st.session_state.file_type, None)
 
                 if df is not None and not df.empty:
-                    # Normalize device column
+                    # --- DEVICE COLUMN NORMALIZATION ---
+                    # 1. Try to find the device column automatically
                     if "device-address:uid" in df.columns:
-                        pass
+                        pass # Found it!
                     elif "Device" in df.columns:
                         df.rename(columns={"Device": "device-address:uid"}, inplace=True)
-                    else:
-                        source_label = os.path.splitext(os.path.basename(uploaded_file.name))[0]
-                        df["device-address:uid"] = source_label
-
+                        st.info("Automatically detected and renamed 'Device' column.")
+                    
+                    # NOTE: If we can't find it, we handle it via the Manual Selector below.
+                    
                     st.session_state.current_data = df
                     st.session_state.processed_data = df.copy()
                     st.success("Data loaded successfully!")
@@ -248,12 +259,49 @@ with tab_load:
         else:
             st.warning("Please upload a file first.")
 
+    # --- Manual Device Column Selection (Outside the Button) ---
+    # This checks if we have data, but missing the specific device column
+    if "current_data" in st.session_state and \
+       (not st.session_state.current_data.empty) and \
+       ("device-address:uid" not in st.session_state.current_data.columns):
+        
+        st.divider()
+        st.warning("⚠️ Device Identifier Column Not Found")
+        st.write("The system could not automatically find a 'Device' or 'device-address:uid' column.")
+        
+        # Get columns from the currently loaded data
+        cols = st.session_state.current_data.columns.tolist()
+        
+        # Let user pick the correct column
+        device_col_option = st.selectbox(
+            "Please select the column that contains the Device ID:", 
+            options=cols,
+            key="manual_device_selector"
+        )
+        
+        if st.button("Apply Column Selection"):
+            # Rename the column in the Session State data
+            st.session_state.current_data.rename(columns={device_col_option: "device-address:uid"}, inplace=True)
+            
+            # Also update processed_data if it exists
+            if st.session_state.processed_data is not None:
+                 st.session_state.processed_data.rename(columns={device_col_option: "device-address:uid"}, inplace=True)
+            
+            st.success(f"Successfully mapped '{device_col_option}' as the Device ID!")
+            st.rerun() # Refresh to update the UI
+
+# -----------------------------------------------------------------------------
+# TAB 2: PREPROCESSING
+# -----------------------------------------------------------------------------
 with tab_preprocess:
     data_to_use = (
         st.session_state.processed_data if st.session_state.processed_data is not None else st.session_state.current_data
     )
     preprocessing_section(data_to_use)
 
+# -----------------------------------------------------------------------------
+# TAB 3: PLOT DATA
+# -----------------------------------------------------------------------------
 with tab_plot:
-    # Plot section includes its own export (under the chart) and keeps the chart visible after downloads
+    # Plot section includes its own export logic
     plot_data_section()
